@@ -92,3 +92,26 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64
+sys_trace(void)
+{
+  argint(0,&(myproc()->mask));
+  return 0;
+}
+
+uint64
+sys_sysinfo(void)
+{
+  struct sysinfo info;
+  info.freemem = kfreemem();
+  info.nproc =usedpro();
+
+  uint64 addr;
+  argaddr(0,&addr);
+
+  if(copyout(myproc()->pagetable,addr,(char *)&info,sizeof(info))<0)
+  return -1;
+
+  return 0;  
+}

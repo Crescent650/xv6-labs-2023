@@ -156,7 +156,6 @@ static char *sysnames[] = {
     [SYS_close] "close",
     [SYS_trace] "trace",
     [SYS_sysinfo] "sysinfo",
-
 };
 
 void
@@ -181,3 +180,4 @@ syscall(void)
     p->trapframe->a0 = -1;
   }
 }
+
