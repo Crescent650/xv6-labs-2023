@@ -63,6 +63,9 @@ void            ramdiskrw(struct buf*);
 void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
+int             isCowpage(pagetable_t,uint64);
+void*           cowalloc(pagetable_t,uint64);
+int             addp2vCount(void *);
 
 // log.c
 void            initlog(int, struct superblock*);
