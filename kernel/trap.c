@@ -78,7 +78,21 @@ usertrap(void)
 
   // give up the CPU if this is a timer interrupt.
   if(which_dev == 2)
+  {
+    ++p->ticksCount;
+    if(p->periodTime!=0&&p->ticksCount==p->periodTime
+    &&p->inAlarm ==0)
+    {
+      p->inAlarm =1;//防止重复进入
+      //保存寄存器内容
+      memmove(p->alarmTrapframe, p->trapframe, sizeof(struct trapframe));
+      //修改地址实现跳转
+      p->trapframe->epc = (uint64)p->handler;
+      p->ticksCount = 0;
+    }
     yield();
+  }
+    
 
   usertrapret();
 }

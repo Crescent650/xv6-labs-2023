@@ -125,6 +125,18 @@ found:
   p->pid = allocpid();
   p->state = USED;
 
+  p->periodTime = 0;
+  p->handler = 0;
+  p->ticksCount = 0;
+
+  p->inAlarm = 0;
+  if ((p->alarmTrapframe = (struct trapframe *)kalloc()) == 0)
+  {
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+
   // Allocate a trapframe page.
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
     freeproc(p);
@@ -169,6 +181,14 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+
+  p->periodTime = 0;
+  p->handler = 0;
+  p->ticksCount = 0;
+  
+  p->inAlarm = 0;
+  if (p->alarmTrapframe) // 释放内存
+    kfree((void *)p->alarmTrapframe);
 }
 
 // Create a user page table for a given process, with no user memory,

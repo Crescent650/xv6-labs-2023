@@ -67,6 +67,9 @@ sys_sleep(void)
     sleep(&ticks, &tickslock);
   }
   release(&tickslock);
+
+  backtrace();
+  
   return 0;
 }
 
@@ -90,4 +93,30 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+
+uint64
+sys_sigalarm(void)
+{
+  struct proc* myProc = myproc();
+  int period;
+  uint64 handler;
+  argint(0, &period);
+  argaddr(1,&handler);
+  myProc->periodTime = period;
+  // 把获得的函数地址值转换成函数指针,存入proc
+  myProc->handler = (void (*)())handler;
+  return 0;
+}
+
+uint64
+sys_sigreturn(void)
+{
+  struct proc* myProc = myproc();
+
+  memmove(myProc->trapframe, myProc->alarmTrapframe, sizeof(struct trapframe));
+  myProc->inAlarm = 0;
+  return myProc->alarmTrapframe->a0;
+  // return 0xac; 这个是test3手动修改的a0值,这个值被保存在用户态的trapframe里
 }
