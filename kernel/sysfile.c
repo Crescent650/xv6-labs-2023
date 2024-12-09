@@ -335,6 +335,29 @@ sys_open(void)
     }
   }
 
+  int linkDepth = 0; // 链接深度
+  while(ip->type == T_SYMLINK && !(omode & O_NOFOLLOW)){ //检查类型
+    if(readi(ip,0,(uint64)path,0,MAXPATH)!=MAXPATH){ //读取target路径名
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+    iunlockput(ip);
+    ip = namei(path); //如果target路径名不存在,报错
+    if(ip==0){
+      end_op();
+      return -1;
+    }
+    ilock(ip);
+    linkDepth++;
+    if(linkDepth>10) //判断链接深度
+    {
+      iunlockput(ip);
+      end_op();
+      return -1;
+    }
+  }
+
   if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){
     iunlockput(ip);
     end_op();
@@ -501,5 +524,34 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+uint64
+sys_symlink(void)
+{
+  char target[MAXPATH], path[MAXPATH];
+  struct inode *ip;
+
+  if (argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
+    return -1;
+  
+  begin_op();
+  ip = create(path,T_SYMLINK,0,0); //为path创建一个inode
+  if (ip == 0)
+    {
+      end_op();
+      return -1;
+    }
+  
+  //把target的值写入path的inode对应的数据块
+  if ((writei(ip, 0, (uint64)target,0 ,MAXPATH) != MAXPATH)){
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+
+  iunlockput(ip);
+  end_op();
   return 0;
 }

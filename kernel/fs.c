@@ -416,6 +416,48 @@ bmap(struct inode *ip, uint bn)
     brelse(bp);
     return addr;
   }
+  //上面代码不变
+  bn -= NINDIRECT; //修改偏移量
+
+  if (bn < NINDIRECT2)
+  {
+    // Load indirect block, allocating if necessary.
+    if ((addr = ip->addrs[NDIRECT+1]) == 0)
+    {
+      addr = balloc(ip->dev);
+      if (addr == 0)
+        return 0;
+      ip->addrs[NDIRECT+1] = addr;
+    }
+
+    bp = bread(ip->dev, addr);
+    a = (uint *)bp->data;
+    if ((addr = a[bn / NINDIRECT]) == 0) //二级间接块相对块号
+    {
+      addr = balloc(ip->dev);
+      if (addr)
+      {
+        a[bn / NINDIRECT] = addr;
+        log_write(bp);
+      }
+    }
+    brelse(bp);
+
+    bp = bread(ip->dev, addr);
+    a = (uint *)bp->data;
+    if ((addr = a[bn%NINDIRECT]) == 0) //一级间接块相对块号
+    {
+      addr = balloc(ip->dev);
+      if (addr)
+      {
+        a[bn%NINDIRECT] = addr;
+        log_write(bp);
+      }
+    }
+    brelse(bp);
+
+    return addr;
+  }
 
   panic("bmap: out of range");
 }
@@ -425,9 +467,9 @@ bmap(struct inode *ip, uint bn)
 void
 itrunc(struct inode *ip)
 {
-  int i, j;
-  struct buf *bp;
-  uint *a;
+  int i, j, k;
+  struct buf *bp,*inbp;
+  uint *a, *b;
 
   for(i = 0; i < NDIRECT; i++){
     if(ip->addrs[i]){
@@ -446,6 +488,32 @@ itrunc(struct inode *ip)
     brelse(bp);
     bfree(ip->dev, ip->addrs[NDIRECT]);
     ip->addrs[NDIRECT] = 0;
+  }
+
+  //上面代码不变
+  if (ip->addrs[NDIRECT+1])
+  {
+    bp = bread(ip->dev, ip->addrs[NDIRECT+1]);
+    a = (uint *)bp->data;
+    for (j = 0; j < NINDIRECT; j++)
+    {
+      if (a[j]){
+        inbp = bread(ip->dev,a[j]);
+        b = (uint *)inbp->data;
+          for (k = 0; k<NINDIRECT; k++)
+          {
+            if(b[k])
+            {
+              bfree(ip->dev,b[k]);
+            }
+          }
+        brelse(inbp);
+        bfree(ip->dev, a[j]);
+        }
+    }
+    brelse(bp);
+    bfree(ip->dev, ip->addrs[NDIRECT+1]);
+    ip->addrs[NDIRECT+1] = 0;
   }
 
   ip->size = 0;
