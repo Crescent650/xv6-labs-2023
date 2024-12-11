@@ -5,6 +5,25 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "fcntl.h"
+
+struct file
+{
+  enum
+  {
+    FD_NONE,
+    FD_PIPE,
+    FD_INODE,
+    FD_DEVICE
+  } type;
+  int ref; // reference count
+  char readable;
+  char writable;
+  struct pipe *pipe; // FD_PIPE
+  struct inode *ip;  // FD_INODE and FD_DEVICE
+  uint off;          // FD_INODE
+  short major;       // FD_DEVICE
+};
 
 struct spinlock tickslock;
 uint ticks;
@@ -65,7 +84,58 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if((which_dev = devintr()) != 0){
+  } else if(r_scause() == 13||r_scause() == 15)
+  {
+    uint64 pa;
+    uint64 va = r_stval(); //获取导致页面异常的虚拟地址
+    struct proc *p =myproc();
+    if(va>MAXVA || va >p->sz) //传入的va应该小于用户进程末尾地址p->sz
+    {
+      setkilled(p); 
+    }
+    else{
+      int found = 0; //用于记录是否找到相应的vma
+      struct vma *vma = 0;
+      for (int i = 0; i < NVMA; i++)
+      {
+        vma = &p->vmas[i];
+        // 判断传入的va是否在addr到addr+length的区间里
+        if(vma->valid&&vma->addr<=va&&va<vma->addr+vma->length)
+        {
+          va = PGROUNDDOWN(va); //向下取到整4096的整数倍,对齐页面大小
+          if((pa=(uint64)kalloc())==0) //分配物理地址
+          break;
+          memset((void *)pa,0,PGSIZE); //大小为一个page
+          //使用readi读取文件
+          ilock(vma->f->ip);
+          if(readi(vma->f->ip,0,pa,vma->offest+va-vma->addr,PGSIZE)<0)
+          {
+            iunlock(vma->f->ip);
+            break;
+          }
+          iunlock(vma->f->ip);
+
+          //根据prot来设定该页的权限
+          int perm = PTE_U;
+          if(vma->prot & PROT_READ)
+            perm |= PTE_R;
+          if (vma->prot & PROT_WRITE)
+            perm |= PTE_W;
+          if (vma->prot & PROT_EXEC)
+            perm |= PTE_X;
+          // 把物理内存添加到进程页表里
+          if(mappages(p->pagetable,va,PGSIZE,pa,perm)<0){ 
+            kfree((void *)pa);
+            break;
+          }
+          found = 1;
+          break;
+        }
+      }
+      if (!found) //如果没有找到就结束进程
+        setkilled(p);
+    }
+  }else if((which_dev = devintr()) != 0){
     // ok
   } else {
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);

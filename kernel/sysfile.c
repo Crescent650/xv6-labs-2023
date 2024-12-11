@@ -503,3 +503,121 @@ sys_pipe(void)
   }
   return 0;
 }
+uint64
+sys_mmap(void)
+{
+  uint64 failure = 0xffffffffffffffff;
+  uint64 addr;
+  int length;
+  int prot;
+  int flags;
+  int fd;
+  int offset;
+  struct file *f;
+
+  struct proc *p = myproc();
+
+  // 从寄存器读取6个参数
+  argaddr(0, &addr);
+  argint(1, &length);
+  argint(2, &prot);
+  argint(3, &flags);
+  if (argfd(4, &fd, &f) < 0)
+    return failure;
+  
+  argint(5, &offset);
+
+  // 检查参数
+  if (length < 0)
+    return failure;
+
+  // 检查安全性
+  length = PGROUNDUP(length); // 向上取整到页大小的整数倍,以便分配判断和分配
+  if (MAXVA - length < p->sz)
+    return failure;
+
+  if (!f->readable && (prot & PROT_READ)) // 文件不可读但传入的是读指示
+    return failure;
+
+  if (!f->writable && (prot & PROT_WRITE) && (flags == MAP_SHARED)) // 文件不可写,但传入的写信号,同时文件被设置成写回模式
+    return failure;
+
+  struct vma *vma = 0;
+  // 寻找空vma来存储信息
+  for (int i = 0; i < NVMA; i++)
+  {
+    vma = &p->vmas[i];
+
+    if (!vma->valid)
+    {
+      vma->valid = 1;
+      vma->addr = p->sz; // vma的地址就是用户进程末尾地址,即p->sz
+      p->sz += length;   // 相应地,p-sz增加length大小
+      vma->length = length;
+      vma->prot = prot;
+      vma->flags = flags;
+      vma->fd = fd;
+      vma->f = f;
+
+      filedup(vma->f); // 文件引用数加1
+      vma->offest = offset;
+      return vma->addr; // 返回vma地址
+    }
+  }
+
+  // 如果vma都被使用了
+  return failure;
+}
+
+uint64
+sys_munmap(void)
+{
+  uint64 addr;
+  int length;
+  argaddr(0,&addr);
+  argint(1,&length);
+
+  //检查参数
+  if(length<0)
+  return -1;
+
+  struct proc *p = myproc();
+  struct  vma *vma = 0;
+  int idx = -1; //记录是否寻找到
+  for(int i = 0;i<NVMA;i++)
+  { //检查传入的va是否在vma区间内
+    if(p->vmas[i].valid &&addr>=p->vmas[i].addr&&addr<p->vmas[i].addr+p->vmas[i].length){
+      idx =i;
+      vma = &p->vmas[idx];
+      break;
+    }
+  }
+  if(idx == -1)
+  return -1;
+
+  addr = PGROUNDDOWN(addr); //对齐页面
+  length = PGROUNDUP(length);//对齐页面
+  if(vma->flags & MAP_SHARED && (vma->prot & PROT_WRITE)){ //如果vma被设置成MAP_SHARED,需要写回
+    filewrite(vma->f,addr,length); // 不需要看PTE_D直接写回
+  }
+
+  uvmunmap(p->pagetable,addr,length/PGSIZE,1);//删除虚拟内存,释放物理页
+
+  //根据addr和length来判断断需要释放的vma内容
+  if(addr == vma->addr &&length == vma->length){
+    //全部释放
+    fileclose(vma->f);
+    vma->valid = 0;
+  }else if (addr == vma->addr)
+  {//释放头部
+    vma->addr +=length;
+    vma->length -=length;
+    vma->offest +=length;
+  }else if((addr+length)==(vma->addr+vma->length)){
+    //释放尾部
+    vma->length -=length;
+  }else{
+    panic("munmap: failed");
+  }
+  return 0;
+}
